@@ -123,26 +123,37 @@ measure_loudness() {
     grep -E '^\s+I:' | tail -n 1 | awk '{print $2}'
 }
 
-offset_file="$state_dir/$(basename "$track" | tr -c 'A-Za-z0-9._-' '_').offsets"
+# Loudness depends on the section measured, so the loop is part of the key.
+track_name="$(basename -- "$track")"
+offset_file="$state_dir/${track_name//[^A-Za-z0-9._-]/_}.${start}+${length}.offsets"
 
-if [[ ! -r $offset_file ]]; then
+declare -A lufs_of
+if [[ -r $offset_file ]]; then
+  while read -r sink value; do
+    [[ -n ${value:-} ]] && lufs_of[$sink]="$value"
+  done <"$offset_file"
+fi
+
+# Calibrate any candidate without a reading, such as a tuning sink loaded since
+# the last run. Left uncalibrated, it would be trimmed as if it measured 0 LUFS.
+uncalibrated=()
+for sink in "${candidates[@]}"; do
+  [[ -n ${lufs_of[$sink]:-} ]] || uncalibrated+=("$sink")
+done
+
+if ((${#uncalibrated[@]})); then
   printf 'Calibrating %d candidates over one %ss loop each...\n' \
-    "${#candidates[@]}" "$length"
-  : >"$offset_file.tmp"
-  for sink in "${candidates[@]}"; do
+    "${#uncalibrated[@]}" "$length"
+  for sink in "${uncalibrated[@]}"; do
     play_on "$sink" || continue
     pactl set-sink-volume "$hw" "$original_volume"
     lufs="$(measure_loudness)"
-    printf '%s %s\n' "$sink" "$lufs" >>"$offset_file.tmp"
+    [[ -n $lufs ]] || continue
+    lufs_of[$sink]="$lufs"
+    printf '%s %s\n' "$sink" "$lufs" >>"$offset_file"
     printf '  %-24s %s LUFS\n' "$(label_for "$sink")" "$lufs"
   done
-  mv "$offset_file.tmp" "$offset_file"
 fi
-
-declare -A lufs_of
-while read -r sink value; do
-  lufs_of[$sink]="$value"
-done <"$offset_file"
 
 quietest=""
 for sink in "${candidates[@]}"; do
