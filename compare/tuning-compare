@@ -16,7 +16,7 @@ set -euo pipefail
 # change after all processing.
 
 hw="$(pactl list sinks short |
-  awk '$2 ~ /^alsa_output\..*sof_sdw.*HiFi__Speaker__sink$/ {print $2; exit}')"
+  awk '$2 ~ /^alsa_output\..*(sof_sdw|HiFi).*Speaker.*sink$/ {print $2; exit}')"
 state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-audio-tuning"
 
 start=0
